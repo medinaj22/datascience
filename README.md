@@ -1,2 +1,2 @@
 # datascience
-Portfolio for data science minor
+portfolio for data science minor
