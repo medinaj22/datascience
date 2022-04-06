@@ -1,0 +1,409 @@
+---
+title: "the very, very basics of regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Intro
+
+This is meant as a simple primer in the basics of how to fit and interpret regression analyses in R.
+
+It is no substitute for coursework focusing directly on regression.  If you plan to work in applied statistics, you should take additional courses that deepen your understanding of these materials.
+
+Regression is a tool that we can use to *estimate* the predictive relationship between one variable and another, adjusting for additional variables.  Under certain assumptions (which likely won't apply here, and are, indeed, rarely met with observational data), those predictive relationships can be interpreted causally.
+
+For our purposes in this class, it will be best to think of your models as exploratory.  That is, you will be able to use regression to examine patterns of conditional association in your data.  Even when this falls short of causal inference it can be very useful.
+
+# Examples in this tutorial
+
+Unlike in some of the other add-on projects and tutorials I've provided, this one is a stand-alone project.  I've uploaded ACS 5 year estimates for some variables for all of the census tracts in CT (across the 8 counties).
+
+```{r}
+options(scipen = 999)
+library(tidyverse)
+
+ct <- read.csv("Cali2018CT.csv")
+
+
+```
+
+```{r}
+table(ct$Geo_COUNTY)
+
+
+ct18 <- ct %>% select(Geo_COUNTY, Geo_TRACT, PCT_SE_A12002_004, PCT_SE_A03001_002, PCT_SE_A03001_003, SE_A14028_001, SE_A10057_001, PCT_SE_A10064_002) %>%
+  transmute(county = case_when(Geo_COUNTY == 1 ~ "Los Angeles",
+                               Geo_COUNTY == 3 ~ "Contra Costa",
+                               Geo_COUNTY == 5 ~ "Lassen",
+                               Geo_COUNTY == 7 ~ "Alameda",
+                               Geo_COUNTY == 9 ~ "Sacramento",
+                               Geo_COUNTY == 11 ~ "Riverside",
+                               Geo_COUNTY == 13 ~ "San Joaquin",
+                               Geo_COUNTY == 15 ~ "San Bernardino"),
+            tract = Geo_TRACT,
+            pct_bachelor_att25 = PCT_SE_A12002_004,
+            pct_white = PCT_SE_A03001_002,
+            pct_black = PCT_SE_A03001_003,
+            gini = SE_A14028_001,
+            med_age_hous = (2018 - SE_A10057_001),
+            med_age_hous = na_if(med_age_hous, 2018),
+            pct_unaf_hous = PCT_SE_A10064_002)
+
+glimpse(ct18)
+```
+
+So now I've got all of the census tracts in CT and variables measuring the median household income, the percentage of tract residents identified as white, the percentage of tract residents identified as black, the gini coefficient (a measure of income inequality bounded between 0 and 1, with 0 being perfect equality and 1 perfect inequality), the median age of the housing in the tract, and the percentage of tract residents who pay more than 30% of their income to housing costs (a conventional measure of housing unafforability).
+
+Remember that our observations are *census tracts*, not individuals.  We can't easily make inferences about individuals with these data.  For example, the fact that the percentage members of group A at the tract level predicts poverty rate at the tract level does not necessarily mean that individual members of group A have higher poverty rates.  This is sometimes called the "ecological fallacy."
+
+In this tutorial, we will use regression to do a bit of exploration of an idea we have encountered in papers we have read this term.  It is, in essence, that (a) residential segregation by race remains strong in the US; (b) in general, groups that have received discrimination in housing are consigned to housing stock that is older.  You will recall that Sampson and Winter argued that part of the racial disparity in exposure to lead may be due to this.
+
+Here we will use regression to ask whether, in Connecticut, the percentage of the tract residents identified as black predicts the median age of structures in the tract.
+
+We'll first look at the bivariate relationship between race and the age of housing and then we'll look at that same association *conditional on other things*.
+
+# OLS regression
+
+There are lots of different linear models out there, and which one you should use depends on several things, with the most important typically being the level of measurement of your y variable (numeric, ordinal, nominal, etc.).  In this class you will probably all have numeric y variables.
+
+The simplest and most common form of linear model you see -- and one very suitable for models with numeric y variables -- is called Ordinary Least Squares (OLS) regression.  
+
+Often, when people say regression they mean OLS.  The name OLS refers to the procedure through which the estimates are generated.  OLS regression finds the most likely intercept and slope of a "line of best fit."  The line that is most likely, given the data, is the one that "minimizes the sum of the squared residuals."  That is, it's the one that is as close as possible to all of the points.
+
+```{r, message = F, warning = F}
+ggplot(ct18, aes(pct_black, pct_bachelor_att25)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = F) +
+  geom_abline(aes(intercept = 80, slope = -0.1), col = "red") +
+  annotate("text", x = 60, y = 58, label = "OLS line", col = "blue") +
+   annotate("text", x = 60, y = 78, label = "Silly line", col = "red")
+```
+In the plot above I've drawn the actual OLS regression line (the blue one) and an arbitrary red line with intercept 80 and a slope of -0.1.  Think about how much bigger the sum of squared residuals (SSR, the distance of the line from all of the points, basically) would be for the red line?
+
+As you know, the slope of the blue line is the "estimate" of the predictive relationship between x and y.
+
+To run this bivariate regression in R, we just do the following:
+
+```{r}
+m1 <- lm(pct_bachelor_att25 ~ pct_black, data = ct18)
+m1
+```
+
+So there is your intercept and slope as estimated by this simple model.
+
+Remember that the slope is rise over run.  So to interpret the value, remember that it's "unit changes in y conditional on a unit change in x."  Don't forget about the units!  (Are they dollars, percentages of residents, counts of things, etc. - the #s only make sense in terms of the units).
+
+We can also extract information about the relative certainty of our estimates.  For this class, I am going to recommend using 95% confidence intervals. We will interpret values inside the 95% CI as those that are roughly "consistent with our data given our model."
+
+How do we recover confidence intervals?
+
+```{r}
+confint(m1)
+```
+
+So the way that we will interpret this, in this class, is that given this bivariate model, the slope values that are roughly consistent with our data range from 0.12 to 0.26.
+
+For those who are familiar with regression and would like to see standard errors, t-scores, p-values, R^2 values, and the like, you can access them with the summary function.
+
+```{r}
+summary(m1)
+```
+
+Again, I am happy to discuss this output with any of you.  But I am only asking students to report point estimates and confidence intervals for the regressions they run, interpreted as described above.
+
+## Things to learn about later
+
+There are a few things I want to emphasize, which you should learn about later if you are going to use these skills beyond this class.
+
+* Linear models are just *models*
+* The inferences they give us are model-dependent
+* There's no correct model, but some are better than others
+* Be careful and cautious - epistemological humility is good.
+
+That said, OLS estimates are *BLUE* (they give the best, linear, unbiased estimates) when a set of assumptions called the Gauss-Markov assumptions are met.  
+
+You can learn about these assumptions -- and how to run diagnostics to see if they are met and, if not, fix the problem when possible -- elsewhere, but note that among the most important assumptions we make when setting up a regression model are the assumptions of linearity and additivity that are baked into the model.
+
+"Best" in BLUE has to do with the "consistency" and "efficiency" of your estimates.  You can learn about those in other courses or come see me to talk about it.
+
+## Using regression for adjustment.
+
+OK, so one of the reasons we might want to use regression, as I said above, is to "adjust" for some variable (you will often hear people say "control for" those other variables, but "adjust" is a better way to say it).  In other words, we might want to see the estimated "effect" of x on y given z.
+
+In the case at hand, we know that racial segregation has coincided with income segregation.  For example, just look at a scatterplot of percent black and median household income.
+
+```{r, warning = F, message = F}
+ggplot(ct18, aes(pct_black, pct_bachelor_att25)) +
+         geom_point(alpha = 0.5) + geom_smooth(method = "lm")
+```
+
+As you can see, that relationship is nonlinear, but these two characteristics of tracts do not appear to be independent.  Median hh income is one of those variables that skews right (there are some super rich tracts way down in the tail of the distribution).  So we can re-envision this by taking the log of median household income.
+
+```{r, message = F, warning = F}
+ct18 <- ct18 %>% mutate(log_pct_bachelor_att25 = log(pct_bachelor_att25))
+
+ggplot(ct18, aes(pct_black, log_pct_bachelor_att25)) +
+         geom_point(alpha = 0.5) + geom_smooth(method = "lm", se = F)
+```
+
+
+``` {r, message = F, warning = F}
+ggplot(ct18, aes(pct_white, pct_bachelor_att25)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = F) +
+  geom_abline(aes(intercept = 80, slope = -0.1), col = "red") +
+  annotate("text", x = 60, y = 58, label = "OLS line", col = "blue") +
+   annotate("text", x = 60, y = 78, label = "Silly line", col = "red")
+```
+
+
+```{r}
+m1 <- lm(pct_high_edu_att25 ~ pct_white, data = ct18)
+m1
+```
+
+
+```{r}
+confint(m1)
+```
+
+
+
+```{r}
+summary(m1)
+```
+
+
+
+```{r, warning = F, message = F}
+ggplot(ct18, aes(pct_white, pct_bachelor_att25)) +
+         geom_point(alpha = 0.5) + geom_smooth(method = "lm")
+```
+
+
+
+
+```{r}
+ct18 <- ct18 %>% mutate(log_pct_bachelor_att25 = log(pct_bachelor_att25))
+
+ggplot(ct18, aes(pct_white, log_pct_bachelor_att25)) +
+         geom_point(alpha = 0.5) + geom_smooth(method = "lm", se = F)
+```
+
+
+
+
+
+Still not perfectly linear but good enough for now.  As you can see, as the percentage of tract residents identified as black increases, the log median household income is lower.  We're not drawing any kind of causal inference here, just noting that they are associated.  Since the log median income of a tract is likely associated with the age of its housing stock as well, we might want to adjust for it in our regression.  Model 2 accomplishes that:
+
+```{r}
+m2 <- lm(gini ~ pct_black + log_pct_high_edu_att25, data = ct18)
+m2
+```
+
+Given our question, the main point of interest here is what has happened to the estimate for (coefficient on) pct_black?  In model 1, without adjusting for log median hh income, it was 0.2.  Now it's 0.11.  This is consistent with the idea, but does not prove, that the relationship between the racial composition of tracts and the age of the structures in the tracts was partially confounded by log median tract income.  If that's true, the estimated "effect" of "pct_black" from model 2 is better than the estimate from model 1.
+
+Let's see confidence intervals as well.
+
+```{r}
+confint(m2)
+```
+
+So again, the way we would interpret this is that, given our model, coefficient estimates for pct_black between 0.04 and 0.18 are broadly consistent with our data.
+
+
+## Adding a categorical predictor
+
+Let's say that we think county matters.  As you may know, Fairfield County is a high income county (though there is internal heterogeneity in Fairfield County, like any place).  It may contrast with the rest of CT in terms of the issues at hand.
+
+Here's a boxplot of pct_black showing how this distribution varies by county:
+
+```{r, message = F, warning = F}
+ct18$county <- as.factor(ct18$county)
+ggplot(ct18, aes(county, pct_black)) +
+  geom_boxplot()
+```
+
+```{r}
+ggplot(ct18, aes(pct_black)) +
+  geom_histogram() + facet_wrap(~county)
+```
+
+
+And the same for median age of the housing.
+
+```{r}
+ggplot(ct18, aes(county, gini)) +
+  geom_boxplot()
+```
+
+Note that if I were doing this for real I would keep all of the counties and compare, but I am first going to just create a Fairfield County dummy variable and compare Fairfield County to the rest of the state.  I am doing this to keep the example more simple for you.
+
+```{r}
+ct18 <- ct18 %>%
+  mutate(la_county = case_when(county == "Los Angeles" ~ 1,
+                               county != "Los Angeles" ~ 0))
+```
+
+So here we will adjust for both log of median income and for county.
+
+```{r}
+m3 <- lm(gini ~ pct_black + log_pct_high_edu_att25 + la_county, data = ct18)
+m3
+```
+
+
+Again, we would be looking at what happens to the cofficient on pct_black.  Let me know if you have questions about how to interpret it at this point.
+
+How do we interpret the coefficient on ff_county?  It's the estimate of the difference in median age of housing in Fairfield County compared to the rest of the state, adjusting for pct_black and log_med_hh_inc.
+
+Again, confidence intervals.
+
+```{r}
+confint(m3)
+```
+
+# Understanding what your model is saying by generating model-implied predictions.
+
+It can aid our understanding of our models to ask what the models imply about the value of the outcome variable we would see given different combinations of our predictors.
+
+```{r}
+summary(ct18$log_med_hh_inc)
+```
+
+Here I will create a dataframe of combinations of the predictors.
+
+```{r}
+ff_predictors <- data.frame(pct_black = seq(from = 0, to = 100, by = 1),
+                            log_med_hh_inc = 11.217,
+                           ff_county = 1)
+n_ff_predictors <- data.frame(pct_black = seq(from = 0, to = 100, by = 1),
+                              log_med_hh_inc = 11.217,
+                          ff_county = 0)
+```
+
+Now I'll use the predict function and the coefficients from model m3.
+
+```{r}
+ff_predictions <- predict(m3, newdata = ff_predictors)
+n_ff_predictions <- predict(m3, newdata = n_ff_predictors)
+```
+
+Just to give you an idea, here is the set of predictions for Fairfield County.  Remember that these predictions assume the average log median household income.  Prediction 1 is for a hypothetical tract that has 0 black residents.  Prediction 101 is for a hypothetical tract whose residents are all identified as black.
+
+```{r}
+ff_predictions
+```
+
+Let's plot
+
+```{r}
+pct_black <- seq(0, 100, 1)
+p <- cbind(pct_black, ff_predictions)
+p <- cbind(p, n_ff_predictions)
+p <- as.data.frame(p)
+head(p, 10)
+```
+```{r}
+ggplot(p, aes(pct_black, ff_predictions)) +
+  geom_line(col = "red") + 
+  geom_line(aes(pct_black, n_ff_predictions), col = "blue") +
+  annotate("text", x = 25, y = 60, label = "Predictions for Fairfield County", col = "red") +
+   annotate("text", x = 70, y = 54, label = "Predictions for other counties", col = "blue")
+
+```
+
+Here you can see that our model assumes the slope is constant across the two groups.  But it thinks that at all levels of x Fairfield County tracts tend to have more old structures.  This is implied by the additive nature of the model, baked in.  But what if we wanted to consider the possibility that the effect of x might be different in Fairfield County and outside it?
+
+## Fitting and interpreting a model with an interaction term (aka "moderation" or "conditional effects")
+
+This next topic confuses many people and you don't necessarily have to include models with interactions in your projects.  However, my hope is to use prediction plots like those above to make then interpretable for you.
+
+As we have seen in papers we have read this term, moderation analysis involves asking whether the estimated "effect" of x changes when the level of y changes.  In the example at hand, x is pct_black and y is ff_county.  In other words, our question is whether the slope on pct_black is different in Fairfield County than it is outside Fairfield County
+
+Happily, we can get at this just by including a multiplicative interaction term.  See the formula below.
+
+```{r}
+m4 <- lm(med_age_hous ~ pct_black + log_med_hh_inc + ff_county + pct_black * ff_county, data = ct18)
+m4
+```
+
+People tend to get confused about 2 things at this point: (1) interpreting so-called "main effects" and (2) intepreting the coefficient on the interaction term.
+
+(1) The "main effects."  Sometimes people think that the cofficient on x, here the coefficient on pct_black, is the effect of x independent of the other variable in the interaction.  That's wrong.  It's the effect when the other variable has a value of 0.  In the case at hand, the ff_county variable has a value of 0 when a tract is not in ff_county.  So the coefficient on pct_black is the estimated relationship between pct_black and med_age_hous outside of FF county, adjusting for the log of median household income.
+
+Symmetrically, the coefficient on ff_county is the estimated "effect" of ff_county on the median age of housing when pct_black = 0.
+
+(2) The coefficient on the interaction term (here -0.17) is how the estimated effect of x changes when the other variable in the interaction changes.  So, according to this model, the estimated coefficient on pct_black changes by -0.17 (i.e., decreases by 0.17) for tracts outside of Fairfield County.
+
+Again, this works symmetrically.  The coefficient on Fairfield County also changes by -0.17 as pct_black increases by 1.
+
+Let's generate confidence intervals for these coefficients and then we'll make a predictive plot to make the above more intuitive.
+
+```{r}
+confint(m4)
+```
+
+OK, so let's make those predictive plots.  Same steps as before.  Create a dataframe with hypothetical values for the predictors.
+
+```{r}
+ff_predictors <- data.frame(pct_black = seq(from = 0, to = 100, by = 1),
+                            log_med_hh_inc = 11.217,
+                           ff_county = 1)
+n_ff_predictors <- data.frame(pct_black = seq(from = 0, to = 100, by = 1),
+                              log_med_hh_inc = 11.217,
+                          ff_county = 0)
+```
+
+Generate the predictions (but using model m4 rather than m3) and bind them for plotting.
+
+```{r}
+ff_predictions <- predict(m4, newdata = ff_predictors)
+n_ff_predictions <- predict(m4, newdata = n_ff_predictors)
+
+pct_black <- seq(0, 100, 1)
+p <- cbind(pct_black, ff_predictions)
+p <- cbind(p, n_ff_predictions)
+p <- as.data.frame(p)
+head(p, 10)
+```
+
+```{r}
+ggplot(p, aes(pct_black, ff_predictions)) +
+  geom_line(col = "red") + 
+  geom_line(aes(pct_black, n_ff_predictions), col = "blue") +
+  annotate("text", x = 25, y = 57.5, label = "Predictions for Fairfield County", col = "red") +
+   annotate("text", x = 75, y = 56, label = "Predictions for other counties", col = "blue")
+```
+
+Can you now see what our model thinks?  It thinks that within Fairfield County, as pct_black is higher, the median age of structures in the tract is lower, but the opposite relationship holds outside of Fairfield County!
+
+We could speculate about why.  I have ideas.  At the same time, this is just an example and we haven't thought too hard about whether this is a well-specified model, etc.
+
+# Better interaction plots
+
+For understanding what your interaction models are saying I would like you to build prediction plots by hand, as I do above, at least in the short term.  I think that will help you learn.  But there's a nice package for making such plots and it has certain advantages, including taking into account the uncertainty from your model that is now shown in the plots I made above.
+
+```{r}
+library(interplot)
+
+interplot(m = m4, var1 = "pct_black", var2 = "ff_county") + labs(caption = "")
+```
+
+So this shows you the estimated coefficient on pct_black when ff_county = 1 and when ff_county = 1.
+
+```{r}
+interplot(m = m4, var1 = "ff_county", var2 = "pct_black") + labs(caption = "")
+```
+
+## OK, please play with regression models here.
+
+I included some additional variables for you to play with (gini coefficient, % of residents with unaffordable housing, etc.)
+
+Fit, plot, and interpret some of your own regressions here so that you can ask me questions about them before you bring these tools back to your own data!
+
+Once you've got questions, email me with the questions and line numbers in the code here!
+
