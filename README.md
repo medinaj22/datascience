@@ -6,6 +6,9 @@ My name is Isaiah Medina and I am a member of the Washington and Lee University 
 If you have any questions about these works or projects please feel free to reach out to either my email or phone number. Thanks in advance!
 
 Isaiah Medina
+
 Washington & Lee University, Class of 2022
+
 medinaj22@mail.wlu.edu
+
 (405) 937-5270
