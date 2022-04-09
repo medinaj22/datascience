@@ -1,0 +1,576 @@
+---
+title: "importing data and merging with shapefiles"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First I'll load some packages that we'll need.  I already installed them for you.
+
+```{r}
+library(tigris)
+library(tidyverse)
+library(spbabel)
+library(foreign)
+```
+
+## Importing the census-tract level data
+
+I've already downloaded tract-level data for CT from Social Explorer and uploaded them to the folder "data" (which you can find in the files window on the lower right of the RStudio interface).
+
+Once you have downloaded such data, which I will show you how to do in class, importing is pretty easy.
+
+First I'm going to import the ACS 5-year estimates from 2014-2018
+
+```{r}
+setwd("data")
+d_14_18 <- read.csv("LACensusTract2018.csv")
+```
+
+Inspect d_14_18
+
+```{r}
+head(d_14_18)
+```
+
+Then you can use the data dictionary to figure out which variable is which.
+
+Next step is to select just the variables you need and to assign them to better (more descriptive but short) names.  For now I'm just keeping the tract id number and median household income, but you would want to keep more.
+
+```{r}
+ct_14_18 <- d_14_18 %>% select(Geo_TRACT, SE_A14006_001)
+head(ct_14_18)
+```
+
+Notice that I am not changing d.  The new tibble is d2.  d is unchanged and I can go back to it as needed.
+
+Here is how I rename median household income and tract id
+
+```{r}
+ct_14_18 <- ct_14_18 %>% transmute(tract_id = Geo_TRACT,
+                       median_hh_inc_18 = SE_A14006_001)
+head(ct_14_18)
+```
+
+Now I'll import the 2006 - 2010 5 year ACS estimates and similarly subset and recode (all at once here since you've seen the steps above).
+
+```{r}
+setwd("data")
+d_06_10 <- read.csv("LACensusTract2010.csv")
+ct_06_10 <- d_06_10 %>% select(Geo_TRACT, SE_A14006_001)
+ct_06_10 <- ct_06_10 %>% transmute(tract_id = Geo_TRACT,
+                       median_hh_inc_10 = SE_A14006_001)
+head(ct_06_10)
+```
+
+Now I noticed something weird in my data here, which is that I've got multiple rows for some tracts, with a median hh income value in the first instance but not in the second.  I've got to fix that.  This probably won't come up with your data, but it might.
+
+```{r}
+for_merge <- ct_06_10 %>% distinct(tract_id, .keep_all = TRUE)
+```
+
+
+## Merging data from different years
+
+```{r}
+d <- ct_14_18 %>% left_join(for_merge, by = "tract_id")
+head(d)
+```
+
+It's pretty easy to look at how median income in 2010 at the tract level predicts median income in 2018.
+
+```{r}
+options(scipen = 999) #This just disables scientific notation
+ggplot(d, aes(median_hh_inc_10, median_hh_inc_18)) +
+  geom_point(alpha = 0.3) + geom_smooth(method = "lm") +
+  labs(title = "MHI in 2010 and 2018, Greater Los Angeles County", subtitle= "Observations are census tracts", x = "Median HH Income in 2010", y = "Median HH Income in 2018")
+```
+
+
+## Accessing tract-level shapefiles from the tigris package
+
+Here I'll just ask for Hartford county.  You'll likely want to select all counties for in your city (usually just one but some cities include multiple counties).
+
+```{r}
+h <- tracts("CA", "Los Angeles", year = 2017, class = "sf")
+h$TRACTCE <- as.numeric(h$TRACTCE)
+```
+
+To plot just the basic outlines of the census tracts:
+
+```{r}
+ggplot(h) +
+  geom_sf()
+```
+
+
+## Merging tract-level data with GIS info
+
+I need to find a "key" for the merge.  Here I look at the tract ID columns for the spatial data and for d.  
+
+```{r}
+h2 <- h %>% left_join(d, by = c("TRACTCE" = "tract_id"))
+```
+
+Here's a quick example of a plot (median household income at the tract level in Hartford County in 2018).
+
+```{r, fig.height = 12, fig.width = 8}
+ggplot(h2) +
+  geom_sf(aes(fill = median_hh_inc_18)) +
+  labs(title = "Median household income at the census tract level, Los Angeles County", subtitle = "2018 ACS 5-year estimates") +
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks.x = element_blank(), axis.ticks.y = element_blank())
+```
+
+
+```{r, fig.height = 12, fig.width = 8}
+ggplot(h2) +
+  geom_sf(aes(fill = median_hh_inc_10)) +
+  labs(title = "Median household income at the census tract level, Los Angeles County", subtitle = "2010 ACS 5-year estimates") +
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks.x = element_blank(), axis.ticks.y = element_blank())
+```
+
+
+
+
+
+
+
+```{r}
+
+d18_CD <- d_14_18 %>% select(PCT_SE_A17005_003, PCT_SE_A10009_005, PCT_SE_A10014_002, PCT_SE_A13002_002, PCT_SE_B01001_002, Geo_TRACT) %>%
+  transmute(pct_unemployed = PCT_SE_A17005_003,
+         pct_sing_parent = PCT_SE_A10009_005,
+         pct_public_assistance = PCT_SE_A10014_002,
+         pct_poverty = PCT_SE_A13002_002,
+         pct_under_18 = PCT_SE_B01001_002,
+         tract_id = Geo_TRACT)
+
+```
+
+Reliability check with Cronbach's alpha?
+
+```{r}
+library(psych)
+
+d18_CD_test <- d18_CD %>% select(-tract_id)
+alpha(d18_CD_test)
+```
+
+Cronbach's alpha about .7 is considered acceptable.  This is around .8, so pretty good.
+
+Look at how these variables relate to each other?
+
+```{r, message = F, warning = F}
+library(GGally)
+ggpairs(d18_CD_test)
+```
+
+
+These need to be z-score transformed and then averaged.
+
+```{r}
+
+d18_CD <- d18_CD %>% mutate(pct_unemployed_z = (pct_unemployed - mean(pct_unemployed, na.rm = T))/sd(pct_unemployed, na.rm = T),
+                            pct_sing_parent_z = (pct_sing_parent - mean(pct_sing_parent, na.rm = T))/sd(pct_sing_parent, na.rm = T),
+                            pct_public_assistance_z = (pct_public_assistance - mean(pct_public_assistance, na.rm = T))/sd(pct_public_assistance, na.rm = T),
+                            pct_poverty_z = (pct_poverty - mean(pct_poverty, na.rm = T))/sd(pct_poverty, na.rm = T),
+                            pct_under_18_z = (pct_under_18 - mean(pct_under_18, na.rm = T))/sd(pct_under_18, na.rm = T))
+                            
+```
+
+Create the cd18 index.
+
+```{r}
+d18_CD <- d18_CD %>% mutate(cd18 = (pct_unemployed_z + pct_sing_parent_z + pct_public_assistance_z + pct_poverty_z + pct_under_18_z) / 5)
+```
+
+See histogram of cd18.
+
+```{r, message = F, warning = F}
+ggplot(d18_CD, aes(cd18)) + 
+  geom_histogram(fill = "darkslategray3")
+```
+
+Throw 2018 concentrated disadvantage on a map?
+
+```{r}
+h3 <- h %>% left_join(d18_CD, by = c("TRACTCE" = "tract_id"))
+```
+
+```{r, fig.width = 12, fig.height = 10}
+ggplot(h3) +
+  geom_sf(aes(fill = cd18)) +
+  labs(title = "Concentrated disadvantage at the census tract level, Los Angeles County", subtitle = "Calculated based on 2018 ACS 5-year estimates") +
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks.x = element_blank(), axis.ticks.y = element_blank())
+```
+
+
+```{r}
+d10_CD <- d_06_10 %>% select(PCT_SE_A17005_003, PCT_SE_A10009_005, PCT_SE_A10014_002, PCT_SE_A13002_002, PCT_SE_B01001_002, Geo_TRACT) %>%
+  transmute(pct_unemployed = PCT_SE_A17005_003,
+         pct_sing_parent = PCT_SE_A10009_005,
+         pct_public_assistance = PCT_SE_A10014_002,
+         pct_poverty = PCT_SE_A13002_002,
+         pct_under_18 = PCT_SE_B01001_002,
+         tract_id = Geo_TRACT)
+```
+
+
+
+```{r}
+library(psych)
+
+d10_CD_test <- d10_CD %>% select(-tract_id)
+alpha(d10_CD_test)
+```
+
+
+
+
+```{r}
+library(GGally)
+ggpairs(d10_CD_test)
+```
+
+
+
+
+```{r}
+d10_CD <- d10_CD %>% mutate(pct_unemployed_z = (pct_unemployed - mean(pct_unemployed, na.rm = T))/sd(pct_unemployed, na.rm = T),
+                            pct_sing_parent_z = (pct_sing_parent - mean(pct_sing_parent, na.rm = T))/sd(pct_sing_parent, na.rm = T),
+                            pct_public_assistance_z = (pct_public_assistance - mean(pct_public_assistance, na.rm = T))/sd(pct_public_assistance, na.rm = T),
+                            pct_poverty_z = (pct_poverty - mean(pct_poverty, na.rm = T))/sd(pct_poverty, na.rm = T),
+                            pct_under_18_z = (pct_under_18 - mean(pct_under_18, na.rm = T))/sd(pct_under_18, na.rm = T))
+```
+
+
+
+
+```{r}
+d10_CD <- d10_CD %>% mutate(cd10 = (pct_unemployed_z + pct_sing_parent_z + pct_public_assistance_z + pct_poverty_z + pct_under_18_z) / 5)
+```
+
+
+
+```{r, message = F, warning = F}
+ggplot(d10_CD, aes(cd10)) + 
+  geom_histogram(fill = "darkslategray3")
+```
+
+
+
+```{r}
+h3 <- h %>% left_join(d10_CD, by = c("TRACTCE" = "tract_id"))
+```
+
+
+```{r, fig.width = 12, fig.height = 10}
+ggplot(h3) +
+  geom_sf(aes(fill = cd10)) +
+  labs(title = "Concentrated disadvantage at the census tract level, Los Angeles County", subtitle = "Calculated based on 2010 ACS 5-year estimates") +
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks.x = element_blank(), axis.ticks.y = element_blank())
+
+```
+
+```{r}
+for_merge <- d10_CD %>% distinct(tract_id, .keep_all = TRUE)
+```
+
+
+
+```{r}
+f <- d18_CD %>% left_join(for_merge, by = "tract_id")
+```
+
+
+
+```{r}
+options(scipen = 999) #This just disables scientific notation
+ggplot(f, aes(cd10, cd18)) +
+  geom_point(alpha = 0.3) + geom_smooth(method = "lm") +
+  labs(title = "CD in 2010 and 2018, Greater Los Angeles County", subtitle= "Observations are census tracts", x = "CD in 2010", y = "CD in 2018")
+```
+
+
+
+
+
+```{r}
+glimpse(d)
+```
+
+```{r}
+
+#Students - use this na.omit function sparingly!
+# Here I just want a df that isn't missing any values for median hh income in either year
+d3 <- na.omit(d)
+m1 <- lm(median_hh_inc_18 ~ median_hh_inc_10, data = d3)
+
+d3$res_chng_mhinc <- residuals(m1)
+```
+
+
+```{r}
+
+h4 <- h %>% left_join(d3, by = c("TRACTCE" = "tract_id"))
+```
+
+```{r, fig.height = 7}
+ggplot(h4) +
+  geom_sf(aes(fill = res_chng_mhinc)) +
+  labs(title = "Residual change in Median HH Income", subtitle = "Los Angeles County, 2010 - 2018") +
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks.x = element_blank(), axis.ticks.y = element_blank()) + theme_minimal()
+```
+
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+I'll go over this in class on March 6, but again the below presumes that (a) you have uploaded the appropriate data and (b) integrated the code below with your larger .Rmd file (required for the join with d, for example).
+
+# Bring in land use data
+
+```{r}
+setwd("data")
+land11 <- read.csv("LALandUse2011.csv")
+glimpse(land11)
+```
+
+## Extract percent high intensity development
+
+```{r}
+land11_hd <- land11 %>% select(Geo_CT, PCT_SE_T003_007) %>%
+  transmute(high_density_dev_pct = PCT_SE_T003_007,
+         tract_id = Geo_CT)
+glimpse(land11_hd)
+
+
+```
+
+## merge with d
+
+```{r}
+d_land <- land11_hd %>% left_join(d, by = "tract_id")
+head(d_land)
+```
+
+## Relationship between high density development and median hh income
+
+```{r}
+ggplot(d_land, aes(median_hh_inc_10, high_density_dev_pct)) +
+  geom_point(alpha = 0.5, col = "purple") + theme_minimal() +
+  labs(title = "High density development and median hh income", subtitle = "Census tracts in Los Angeles County", y = "High density dev pct, 2011", x = "Median household income 2010")
+```
+
+You could also plot high density development on a map, which you should by now know how to do.
+
+
+
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Here is a template for creating dissimiarlity indices using the seg package (which you will have to install).
+
+Note that I'm taking the counts of black and white residents of tracts in the relevant years as inputs here.  You would, of course, select differently if computing dissimilarity indexes for different groups.
+
+Note also that the code below won't work as it stands but depends on the code provided earlier in the data import and cleaning file.  Insofar as you have updated that earlier file you'll have to update this code as well.
+
+#### White-Black Dissimilarity Index 2018
+
+```{r}
+library(seg)
+
+d18_seg <- d_14_18 %>% select(SE_A03001_001, SE_A03001_002) %>%
+  transmute(white_residents = SE_A03001_001,
+          black_residents = SE_A03001_002)
+s18 <- dissim(data = d18_seg)
+dim(d18_seg)
+s18$d
+```
+
+#### White-Black Dissimilarity Index 2010
+
+```{r}
+d10_seg <- d_06_10 %>% select(SE_A03001_001, SE_A03001_002) %>%
+  transmute(white_residents = SE_A03001_001,
+          black_residents = SE_A03001_002)
+s10 <- dissim(data = d10_seg)
+dim(d10_seg)
+s10$d
+```
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The following code assumes you have downloaded from Social Explorer census data from 1970, 1980, and 1990, all interpolated to 2010 census geographies for comparability's sake (I'll show this to you in class on 3/5).
+
+You will likely want to add 2000 and 2010 to this as well.
+
+## Import 1990 census data
+
+```{r}
+setwd("data")
+c1990 <- read.csv("LA1990Census.csv")
+dim(c1990)
+#glimpse(c1990)
+```
+
+## Calculate 1990 Black-White Dissimilarity Index
+
+```{r}
+
+c1990_seg <- c1990 %>% select(SE_T012_001, SE_T012_002) %>%
+  transmute(white_inds = SE_T012_001,
+         black_inds = SE_T012_002)
+
+s90 <- dissim(data = c1990_seg)
+s90$d
+dim(c1990_seg)
+glimpse(c1990_seg)
+```
+
+## Same for 1980
+
+```{r}
+setwd("data")
+c1980 <- read.csv("LA1980Census.csv")
+dim(c1980)
+#glimpse(c1980)
+```
+
+```{r}
+c1980_seg <- c1980 %>% select(SE_T012_001, SE_T012_002) %>%
+  transmute(white_inds = SE_T012_001,
+         black_inds = SE_T012_002)
+
+s80 <- dissim(data = c1980_seg)
+dim(c1980_seg)
+s80$d
+```
+
+## And for 1970
+
+```{r}
+setwd("data")
+c1970 <- read.csv("LA1970Census.csv")
+#glimpse(c1970)
+
+c1970_seg <- c1970 %>% select(SE_T012_001, SE_T012_002) %>%
+  transmute(white_inds = SE_T012_001,
+         black_inds = SE_T012_002)
+c1970_seg <- na.omit(c1970_seg)
+s70 <- dissim(data = c1970_seg)
+dim(c1970_seg)
+s70$d
+```
+
+## Plot of B-W Dissimilarity Index Over Time
+
+```{r}
+seg <- data.frame(index = c(s90$d, s80$d, s70$d), year = c(1990, 1980, 1970))
+head(seg)
+```
+
+```{r}
+ggplot(seg, aes(year, index)) +
+  geom_line(col = "red") +
+  theme_minimal() + labs(title = "B-W Dissimilarity Index Over Time, Los Angeles County", subtitle = "Data: US Census", y = "", x = "")
+
+
+
+```
+
+```{r}
+library(seg)
+
+d18_seg <- d_14_18 %>% select(SE_A04001_001, SE_A04001_008) %>%
+  transmute(non_hispan = SE_A04001_001,
+          hispan_latin = SE_A04001_008)
+s18 <- dissim(data = d18_seg)
+dim(d18_seg)
+s18$d
+```
+
+```{r}
+d10_seg <- d_06_10 %>% select(SE_A04001_001, SE_A04001_008) %>%
+  transmute(white_residents = SE_A04001_001,
+          black_residents = SE_A04001_008)
+s10 <- dissim(data = d10_seg)
+dim(d10_seg)
+s10$d
+```
+
+```{r}
+
+c1990_seg <- c1990 %>% select(SE_T013_001, SE_T013_008) %>%
+  transmute(white_inds = SE_T013_001,
+         black_inds = SE_T013_008)
+
+s90 <- dissim(data = c1990_seg)
+s90$d
+dim(c1990_seg)
+glimpse(c1990_seg)
+```
+
+
+
+
+```{r}
+c1980_seg <- c1980 %>% select(SE_T013_001, SE_T013_008) %>%
+  transmute(white_inds = SE_T013_001,
+         black_inds = SE_T013_008)
+
+s80 <- dissim(data = c1980_seg)
+dim(c1980_seg)
+s80$d
+```
+
+
+
+
+```{r}
+setwd("data")
+c1970 <- read.csv("LA1970Census.csv")
+#glimpse(c1970)
+
+c1970_seg <- c1970 %>% select(SE_T013_001, SE_T013_002) %>%
+  transmute(white_inds = SE_T013_001,
+         black_inds = SE_T013_002)
+c1970_seg <- na.omit(c1970_seg)
+s70 <- dissim(data = c1970_seg)
+dim(c1970_seg)
+s70$d
+```
+
+
+
+
+```{r}
+seg <- data.frame(index = c(s90$d, s80$d, s70$d), year = c(1990, 1980, 1970))
+head(seg)
+```
+
+
+
+
+```{r}
+ggplot(seg, aes(year, index)) +
+  geom_line(col = "red") +
+  theme_minimal() + labs(title = "Hispanic-Non Hispanic Dissimilarity Index Over Time, Los Angeles County", subtitle = "Data: US Census", y = "", x = "")
+
+```
+
