@@ -1,6 +1,0 @@
-# class-demo-project
-  Hi there, our names are Bella Frazier-Pool and Isaiah Medina. Our Bio 185 project theme was over inequality between different races in the U.S. over time. We looked at three different categories to compare between blacks and whites. 
-  1. The first was income disparity between black and white Americans over time. We simply took that data from the Census and created a scatterplot to compare the income levels between both groups and see how great improvements have been for each group, if any. 
-  2. The second disparity we examined was life expectancy between both groups. We obtained our data for this comparison from the National Center for Health Statistics and created a similar interactive scatterplot. 
-  3. Lastly, we decided to plot county-level life expectancy in the US. The reason being that counties with lower levels of income have a lower life expectancy. Counties with higher levels of black Americans also tend to have lower life expectancies. These two are just correlations observed by social scientists and nobody is saying that these two factors are direct causes of lower life expectancies. 
-  We then also cleaned up national data we used so that others later down the road are able to refer to our work if they so choose to.
