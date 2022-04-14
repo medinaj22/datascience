@@ -4,6 +4,7 @@ is the most recent language I learned and still fresh in my mind. I also did not
 
 Due to the dataset being very large and GitHub having a limit on the size of files uploaded, I have uploaded the file to Box and included a link for access.
 
-NOTE: If using Google Colab, there may be issues as certain packages are not installed ans should be installed using either pip or conda. Check with your IT department to find out which packages must be installed. I used Anaconda meaning the packages I needed were already installed.
-
 https://wlu.box.com/s/bxhsbweq15x7zd7yoyx1dyfktxy1zxit
+
+
+NOTE: If using Google Colab, there may be issues as certain packages are not installed ans should be installed using either pip or conda. Check with your IT department to find out which packages must be installed. I used Anaconda meaning the packages I needed were already installed.
